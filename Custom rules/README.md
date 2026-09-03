@@ -1,19 +1,22 @@
-# Wazuh Custom Detection Lab Documentation
+# Wazuh Custom Rules Documentation for Company Dashboard
 
 ## Overview
 
-This document describes custom Wazuh detections built in a lab using
-Apache and a custom application log. The detection workflow is reusable
-with Palo Alto, Cisco Secure Firewall/FTD, Fortinet, Nginx, IIS,
-ModSecurity, or other products by adapting only the decoder/log source.
+Ei README-tta amar VM-e Apache + Wazuh diye test kora custom rules-er jonno. Ei rules-gulo amra company-er Wazuh environment-e reuse kore Palo Alto firewall er logs theke security monitoring and dashboard banate pari.
+
+Amar main goal holo:
+- Apache lab rules ke Wazuh-e validate kora
+- Palo Alto theke log collect kora
+- Custom decoder/rule diye alert generate kora
+- Wazuh Discover, dashboard, visualization-e show kora
 
 ## Detection Flow
 
-``` text
+```text
 Log Source
    |
    v
-Wazuh Agent
+Wazuh Agent / Syslog Forwarder
    |
    v
 Decoder (Built-in or Custom)
@@ -25,18 +28,20 @@ Rule
 Alert
    |
    v
-Dashboard
+Dashboard / Discover
 ```
 
-## PHP Code Injection
+## Lab Rules (Apache-Based Test Cases)
 
--   Built-in decoder: web-accesslog
--   Rule ID: 100500
--   MITRE: T1190
+### 1. PHP Code Injection
+
+- Built-in decoder: web-accesslog
+- Rule ID: 100500
+- MITRE: T1190
 
 Rule:
 
-``` xml
+```xml
 <rule id="100500" level="12">
   <if_group>accesslog</if_group>
   <match>php://</match>
@@ -48,22 +53,19 @@ Rule:
 
 Test:
 
-``` bash
+```bash
 curl "http://localhost/index.php?page=php://input"
 ```
 
-Future devices: - Palo Alto URL Logs - Cisco HTTP/Proxy Logs - Any
-device exposing HTTP URL/URI
+### 2. HTML Injection
 
-## HTML Injection
-
--   Built-in decoder: web-accesslog
--   Rule ID: 100620
--   MITRE: T1190
+- Built-in decoder: web-accesslog
+- Rule ID: 100620
+- MITRE: T1190
 
 Rule:
 
-``` xml
+```xml
 <rule id="100620" level="10">
   <if_group>accesslog</if_group>
   <match>Injected</match>
@@ -75,18 +77,17 @@ Rule:
 
 Test:
 
-``` bash
+```bash
 curl "http://localhost/index.php?name=<h1>Injected</h1>"
 ```
 
-## XML Bomb
+### 3. XML Bomb
 
-Reason for custom decoder: The application log was not recognized by a
-built-in decoder ("No decoder matched").
+Ei case-ta custom decoder lage karon application log built-in decoder diye match hocche na.
 
 Decoder:
 
-``` xml
+```xml
 <decoder name="xml_bomb">
     <program_name>^myapp$</program_name>
     <prematch>ERROR XML entity expansion detected</prematch>
@@ -97,7 +98,7 @@ Decoder:
 
 Rule:
 
-``` xml
+```xml
 <rule id="100610" level="10">
     <decoded_as>xml_bomb</decoded_as>
     <match>XML entity expansion detected</match>
@@ -109,43 +110,93 @@ Rule:
 
 Test:
 
-``` bash
+```bash
 logger -t myapp "ERROR XML entity expansion detected while parsing request"
 ```
 
-## When to Create a Decoder
+## Company Use Case: Palo Alto to Wazuh
 
-Create a custom decoder only when Phase 2 of `wazuh-logtest` shows:
+Company-e jodi Palo Alto firewall theke log collect kora hoy, tahole same workflow follow kora jay:
 
-    No decoder matched
+1. Palo Alto theke log Wazuh-e forward kora
+   - syslog / CEF / agent path diye
+2. Wazuh-e decoder match hocche kina check kora
+3. Jodi built-in decoder na pay, custom decoder create kora
+4. Rule build kora
+5. Alert Wazuh Discover-e dekhano
+6. Dashboard-e widget banano
 
-If Phase 2 already identifies a decoder (for example `web-accesslog`,
-`pam`, `sudo`, `sshd`), reuse the built-in decoder and create only a
-custom rule.
+## How to Adapt Apache Rules for Palo Alto Logs
 
-## Migration Strategy (Apache -\> Palo Alto/Cisco)
+Apache rules er logic ke Palo Alto logs-e apply korar jonno amra usually ei fields gulor upor match kori:
+- URL / URI
+- HTTP request
+- Threat name
+- Source IP
+- Destination IP
+- Message / Description
+- Severity
 
-1.  Identify the log source.
-2.  Check whether Wazuh already has a decoder.
-3.  If not, create a custom decoder.
-4.  Reuse the same rule logic by matching the decoded fields (URL, URI,
-    HTTP request, message, threat name, etc.).
-5.  Validate with `wazuh-logtest`.
-6.  Confirm alerts in Discover and dashboards.
+Jodi Palo Alto er log message-e ei fields gulo thake, tahole same rule structure use kora jay.
 
-## MITRE
+## Example Palo Alto Rule Template
 
-  Detection            MITRE
-  -------------------- -------
-  PHP Code Injection   T1190
-  HTML Injection       T1190
-  XML Bomb             T1190
+```xml
+<decoder name="paloalto_threat">
+    <program_name>^PA-Firewall$</program_name>
+    <prematch>THREAT</prematch>
+    <regex>^(.*)$</regex>
+    <order>message</order>
+</decoder>
+
+<rule id="100700" level="10">
+    <decoded_as>paloalto_threat</decoded_as>
+    <match>THREAT</match>
+    <description>Palo Alto threat event detected</description>
+    <group>network,firewall,threat,</group>
+    <mitre><id>T1190</id></mitre>
+</rule>
+```
+
+> Note: Ei example template hocche generic pattern. Amar company-er actual Palo Alto log format er basis-e decoder er regex adjust korte hobe.
+
+## When to Create a Custom Decoder
+
+Jodi `wazuh-logtest`-er Phase 2-e eta dekhay:
+
+```text
+No decoder matched
+```
+
+tahole custom decoder create kora lagbe.
+
+Jodi already decoder match kore, tahole only custom rule create kora jabe.
+
+## Wazuh Dashboard Ideas for Company
+
+Palo Alto logs theke dashboard-e ei widgets rakha jete pare:
+- Alert count over time
+- Top source IPs
+- Top destination IPs
+- Top threat categories
+- Severity distribution
+- Blocked URL / suspicious web activity
+- Firewall event trend by hour/day
 
 ## Validation Checklist
 
--   Agent receives logs.
--   Decoder matches.
--   Rule matches.
--   Alert generated.
--   Dashboard shows the alert.
--   MITRE mapping verified.
+- Palo Alto log Wazuh-e reach kore
+- Decoder match kore
+- Rule trigger hoy
+- Alert Discover-e dekhay
+- Dashboard-e widget show kore
+- MITRE mapping thake
+
+## Migration Strategy
+
+1. Sample Palo Alto log identify kora
+2. Wazuh-e decoder check kora
+3. Jodi decoder na thake, custom decoder create kora
+4. Rule logic reuse kora
+5. `wazuh-logtest` diye validate kora
+6. Alert Discover and dashboard-e verify kora
